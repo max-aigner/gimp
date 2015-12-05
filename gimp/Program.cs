@@ -16,8 +16,9 @@
 
         private static string username;
         private static string password;
-        private static readonly int ResultUploadOffset = 58 * 60;
+        private static int UploadOffset = 58 * 60;
         private static int MinAssignmentCount = 2;
+        private static int ReportOffset = 12 * 60;
 
         /// <summary>
         /// Last calculated credit amount.
@@ -52,6 +53,7 @@
             DateTime lastAssignmentCheck = Constants.Never;
             DateTime lastResultCheck = Constants.Never;
             bool resultsUploaded = false;
+            bool reportsDownloaded = false;
 
             CalculateStatistics();
 
@@ -73,7 +75,7 @@
 
                 var offset = now.Minute * 60 + now.Second;
 
-                if (offset >= ResultUploadOffset)
+                if (offset >= UploadOffset)
                 {
                     if (!resultsUploaded)
                     {
@@ -88,12 +90,25 @@
                     resultsUploaded = false;
                 }
 
+                if (offset >= ReportOffset)
+                {
+                    if (!reportsDownloaded)
+                    {
+                        DownloadReports();
+                        reportsDownloaded = true;
+                    }
+                }
+                else
+                {
+                    reportsDownloaded = false;
+                }
+
                 Thread.Sleep(1000);
             }
         }
 
         /// <summary>
-        /// Ensures each work todo file has at least the minimum number of
+        /// Ensures each work todo file has the minimum number of
         /// assignments.
         /// </summary>
         private static void CheckAssignments()
@@ -144,7 +159,7 @@
                         password,
                         MinAssignmentCount - assignmentLines.Count,
                         1,
-                        Gimps.PreferredWorkType.WorldRecordTests,
+                        Gimps.AssignmentType.WorldRecordTests,
                         null,
                         null));
 
@@ -346,6 +361,25 @@
             LastCredit365 = credit365;
         }
 
+        private static void DownloadReports()
+        {
+            const int rankLo = 1;
+            const int rankHi = 500;
+
+            var now = DateTime.UtcNow;
+            var hour = now.Minute <= 1 ? now.Hour : now.Hour + 1;
+            var logId = new DateTime(now.Year, now.Month, now.Day, hour, 0, 0).ToString("yyyy-MM-dd-hh");
+            var startDate = Constants.GimpsStart;
+
+            Gimps.GetReport(logId, false, Gimps.ReportType.All, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.TrialFactoring, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.P1Factoring, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.FirstLlTesting, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.DoubleChecking, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.EcmMersenne, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.EcmFermat, rankLo, rankHi, startDate, null);
+        }
+
         /// <summary>
         /// Writes a message to stdout.
         /// </summary>
@@ -361,6 +395,7 @@
         private static void ReadSettings()
         {
             var appSettings = ConfigurationManager.AppSettings;
+            var number = 0;
 
             foreach (var key in appSettings.AllKeys)
             {
@@ -378,6 +413,27 @@
 
                     case Constants.KeyPassword:
                         password = value;
+                        break;
+
+                    case Constants.KeyUploadOffset:
+                        if (int.TryParse(value, out number))
+                        {
+                            UploadOffset = number * 60;
+                        }
+                        break;
+
+                    case Constants.KeyMinAssignmentCount:
+                        if (int.TryParse(value, out number))
+                        {
+                            MinAssignmentCount = number;
+                        }
+                        break;
+
+                    case Constants.KeyReportOffset:
+                        if (int.TryParse(value, out number))
+                        {
+                            ReportOffset = number * 60;
+                        }
                         break;
                 }
             }
