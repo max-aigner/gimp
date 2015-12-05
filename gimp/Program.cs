@@ -7,7 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace gimp
+namespace Gimp
 {
     class Program
     {
@@ -20,17 +20,23 @@ namespace gimp
         private const string StagingDir = "staging\\";
         private const string BackupDir = "backup\\";
         private const string LoggingDir = "logs\\";
+        private const string WebLogsDir = "weblogs\\";
         private const string TxtExension = ".txt";
         private const string TestKey = "Test";
         private const string DblChkKey = "DoubleCheck";
 
         private static int MinAssignmentCount = 2;
+        private static double LastCredit365 = 0;
 
         private static readonly DateTime Never = new DateTime();
         private static readonly List<string> folders = new List<string>();
         private static readonly List<Worker> workers = new List<Worker>();
         private static readonly TimeSpan AssignmentCheckInterval = new TimeSpan(0, 10, 11);
         private static readonly TimeSpan ResultCheckInterval = new TimeSpan(0, 1, 3);
+        private static readonly TimeSpan Interval7Days = new TimeSpan(7, 0, 0, 0);
+        private static readonly TimeSpan Interval30Days = new TimeSpan(30, 0, 0, 0);
+        private static readonly TimeSpan Interval90Days = new TimeSpan(90, 0, 0, 0);
+        private static readonly TimeSpan Interval365Days = new TimeSpan(365, 0, 0, 0);
         private static readonly int ResultUploadOffset = 58 * 60;
         private static string username;
         private static string password;
@@ -57,9 +63,13 @@ namespace gimp
                 workers.Add(worker);
             }
 
+            Console.WriteLine();
+
             DateTime lastAssignmentCheck = Never;
             DateTime lastResultCheck = Never;
             bool resultsUploaded = false;
+
+            CalculateStatistics();
 
             while (true)
             {
@@ -85,6 +95,8 @@ namespace gimp
                     {
                         UploadCheck();
                         resultsUploaded = true;
+
+                        CalculateStatistics();
                     }
                 }
                 else
@@ -163,6 +175,8 @@ namespace gimp
                             StdOut(string.Format("Assign: {0}", line));
                         }
 
+                        Console.WriteLine();
+
                         timestamp = File.GetLastWriteTimeUtc(worker.WorkTodoFileName);
                     }
                 }
@@ -205,7 +219,7 @@ namespace gimp
                         continue;
                     }
 
-                    StdOut(string.Format("Results: Found '{0}' in folder '{1}'.", line, worker.Directory));
+                    StdOut(string.Format("Results: {0} in folder {1}.", line, worker.Directory));
 
                     resultLines.Add(line);
                 }
@@ -224,6 +238,10 @@ namespace gimp
             }
         }
 
+        /// <summary>
+        /// Checks whether there are any files in staging that need to be uploaded
+        /// to GIMPS. Uploads files and moves them to the backup folder.
+        /// </summary>
         private static void UploadCheck()
         {
             var stagedFiles = new List<string>(Directory.EnumerateFiles(StagingDir, "*.txt"));
@@ -256,7 +274,7 @@ namespace gimp
                         password,
                         resultLines))
                 {
-                    Console.WriteLine("Upload: Error uploading {0}", file);
+                    StdOut(string.Format("Upload: Error uploading {0}", file));
                     continue;
                 }
 
@@ -275,11 +293,80 @@ namespace gimp
             }
         }
 
-        private static void StdOut(string text)
+        /// <summary>
+        /// Walks through the upload response HTML files in the web logs folder and
+        /// calculates credit received for various periods. Prints a statistics line
+        /// if the result is different from the last run.
+        /// </summary>
+        private static void CalculateStatistics()
         {
-            Console.WriteLine("{0} {1}", DateTime.Now.ToString("MMM dd  HH:mm:ss"), text);
+            var now = DateTime.UtcNow;
+            var credit7 = 0.0;
+            var credit30 = 0.0;
+            var credit90 = 0.0;
+            var credit365 = 0.0;
+
+
+            var stagedFiles = new List<string>(Directory.EnumerateFiles(WebLogsDir, "*.upload.html"));
+
+            foreach (var file in stagedFiles)
+            {
+                var interval = now - File.GetCreationTimeUtc(file);
+
+                if (interval > Interval365Days)
+                {
+                    continue;
+                }
+
+                var credit = Gimps.ParseCpuCredit(File.ReadAllText(file));
+
+                if (interval > Interval90Days)
+                {
+                    credit365 += credit;
+                }
+
+                if (interval > Interval30Days)
+                {
+                    credit365 += credit;
+                    credit90 += credit;
+                }
+
+                if (interval > Interval7Days)
+                {
+                    credit365 += credit;
+                    credit90 += credit;
+                    credit30 += credit;
+                }
+
+                credit365 += credit;
+                credit90 += credit;
+                credit30 += credit;
+                credit7 += credit;
+            }
+
+            if (credit365 == LastCredit365)
+            {
+                return;
+            }
+
+            StdOut(string.Format("Stats: 7: {0}, 30: {1}, 90: {2}, 365: {3}", credit7, credit30, credit90, credit365));
+            Console.WriteLine();
+
+            LastCredit365 = credit365;
         }
 
+        /// <summary>
+        /// Writes a message to stdout.
+        /// </summary>
+        /// <param name="display"></param>
+        private static void StdOut(string display)
+        {
+            Console.WriteLine("{0} {1}", DateTime.Now.ToString("MMM dd  HH:mm:ss"), display);
+        }
+
+        /// <summary>
+        /// Read settings from app config file.
+        /// </summary>
         private static void ReadSettings()
         {
             var appSettings = ConfigurationManager.AppSettings;
