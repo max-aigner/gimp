@@ -1,27 +1,20 @@
 ﻿namespace Gimp
 {
     using System;
-    using System.Text;
     using System.Net;
     using System.IO;
-    using System.Diagnostics;
     using System.Collections.Generic;
 
     public class Gimps
     {
-        private const string WebLogsDir = "weblogs\\";
-        private const string TestKey = "Test";
-        private const string DblChkKey = "DoubleCheck";
-
         private const string BeginBlockMarker = "<!--BEGIN_ASSIGNMENTS_BLOCK-->";
         private const string EndBlockMarker = "<!--END_ASSIGNMENTS_BLOCK-->";
         private const string UserValidationPhrase = "PROCESSING_VALIDATION:ASSIGNED TO ";
+        private const string UserIdMarker = "name=\"was_logged_in_as\" value=\"";
         private const string CpuCredit = "CPU credit is ";
         private const string GhzDays = " GHz-days.";
-
         private const string Accept = "text/html, application/xhtml+xml, */*";
         private const string UserAgent = "Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko";
-        private const string UserIdMarker = "name=\"was_logged_in_as\" value=\"";
 
         /// <summary>
         /// Assignment types that can be requested from GIMPS server.
@@ -332,7 +325,7 @@
 
             var assignments = response.Substring(beg, end - beg).Trim();
 
-            return assignments.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            return assignments.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
         }
 
         /// <summary>
@@ -388,7 +381,7 @@
             string response)
         {
             File.WriteAllText(
-                WebLogsDir + logId + "." + method + ".html",
+                Constants.WebLogsDir + logId + "." + method + ".html",
                 response);
         }
     }
