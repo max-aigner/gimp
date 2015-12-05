@@ -1,32 +1,28 @@
 ﻿namespace Gimp
 {
     using System;
-    using System.Text;
     using System.Net;
     using System.IO;
-    using System.Diagnostics;
     using System.Collections.Generic;
 
+    /// <summary>
+    /// GIMPS specific methods for login, assignments, uploads, parsing etc.
+    /// </summary>
     public class Gimps
     {
-        private const string WebLogsDir = "weblogs\\";
-        private const string TestKey = "Test";
-        private const string DblChkKey = "DoubleCheck";
-
         private const string BeginBlockMarker = "<!--BEGIN_ASSIGNMENTS_BLOCK-->";
         private const string EndBlockMarker = "<!--END_ASSIGNMENTS_BLOCK-->";
         private const string UserValidationPhrase = "PROCESSING_VALIDATION:ASSIGNED TO ";
+        private const string UserIdMarker = "name=\"was_logged_in_as\" value=\"";
         private const string CpuCredit = "CPU credit is ";
         private const string GhzDays = " GHz-days.";
-
         private const string Accept = "text/html, application/xhtml+xml, */*";
         private const string UserAgent = "Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko";
-        private const string UserIdMarker = "name=\"was_logged_in_as\" value=\"";
 
         /// <summary>
         /// Assignment types that can be requested from GIMPS server.
         /// </summary>
-        public enum PreferredWorkType
+        public enum AssignmentType
         {
             /// <summary>
             /// Invalid assignment type.
@@ -34,39 +30,115 @@
             None = 0,
 
             /// <summary>
-            /// World record Lucas-Lehmer LL test assignment.
+            /// World record Lucas-Lehmer (LL) test.
             /// </summary>
             WorldRecordTests = 102,
 
             /// <summary>
-            /// Smallest available LL test assignment.
+            /// Smallest available LL test.
             /// </summary>
             SmallestAvailableFirstTimeTests = 100,
 
             /// <summary>
-            /// Double check (DC) test assignment.
+            /// Double check (DC) test.
             /// </summary>
             DoubleCheckTests = 101,
 
             /// <summary>
-            /// P1 factoring test assignment.
+            /// P1 factoring test.
             /// </summary>
             P1Factoring = 4,
 
             /// <summary>
-            /// Trial factoring (TF) test assignment.
+            /// Trial factoring (TF) test.
             /// </summary>
             TrialFactoring = 2,
 
             /// <summary>
-            /// Elliptic curve factoring test assignment.
+            /// Elliptic curve factoring test.
             /// </summary>
             ECMFactoring = 5,
 
             /// <summary>
-            /// Large number LL test assignment.
+            /// Large number LL test.
             /// </summary>
             HundredMillionDigitTest = 104
+        }
+
+        public enum ReportType
+        {
+            /// <summary>
+            /// Overall
+            /// </summary>
+            All = 0,
+
+            /// <summary>
+            /// Trial factoring
+            /// </summary>
+            TrialFactoring = 1001,
+
+            /// <summary>
+            /// P-1 factoring
+            /// </summary>
+            P1Factoring = 1002,
+
+            /// <summary>
+            /// First LL testing
+            /// </summary>
+            FirstLlTesting = 1003,
+
+            /// <summary>
+            /// Double checking
+            /// </summary>
+            DoubleChecking = 1004,
+
+            /// <summary>
+            /// ECM on small Mersenne primes
+            /// </summary>
+            EcmMersenne = 1005,
+
+            /// <summary>
+            /// ECM on Fermat primes
+            /// </summary>
+            EcmFermat = 1006
+        }
+
+        /// <summary>
+        /// Downloads customized report from GIMPS.
+        /// </summary>
+        /// <param name="logId"></param>
+        /// <param name="teamFlag"></param>
+        /// <param name="reportType"></param>
+        /// <param name="rankLow"></param>
+        /// <param name="rankHigh"></param>
+        /// <param name="startDate"></param>
+        /// <param name="endDate"></param>
+        /// <returns></returns>
+        public static string GetReport(
+            string logId,
+            bool teamFlag,
+            ReportType reportType,
+            int rankLow,
+            int rankHigh,
+            DateTime? startDate,
+            DateTime? endDate)
+        {
+            string url =
+                "http://www.mersenne.org/report_top_500_custom/?" +
+                "team_flag=" + (teamFlag ? "1" : "0") +
+                "&type=" + (int)reportType +
+                "&rank_lo=" + rankLow +
+                "&rank_hi=" + rankHigh +
+                "&start_date=" + (startDate == null ? string.Empty : startDate.Value.ToString("yyyy-MM-dd")) +
+                "&end_date=" + (endDate == null ? string.Empty : endDate.Value.ToString("yyyy-MM-dd"));
+
+            var response = PerformGet(url);
+
+            var method = reportType.ToString().ToLowerInvariant() + ".report";
+
+            LogResponse(logId, method, response);
+
+            return response;
         }
 
         /// <summary>
@@ -87,7 +159,7 @@
             string password,
             int cores,
             int assignmentsToGet,
-            PreferredWorkType workType,
+            AssignmentType workType,
             int? expStart,
             int? expEnd)
         {
@@ -332,7 +404,7 @@
 
             var assignments = response.Substring(beg, end - beg).Trim();
 
-            return assignments.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            return assignments.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
         }
 
         /// <summary>
@@ -388,7 +460,7 @@
             string response)
         {
             File.WriteAllText(
-                WebLogsDir + logId + "." + method + ".html",
+                Constants.WebLogsDir + logId + "." + method + ".html",
                 response);
         }
     }

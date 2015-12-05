@@ -1,49 +1,34 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Configuration;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-
-namespace Gimp
+﻿namespace Gimp
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Configuration;
+    using System.IO;
+    using System.Linq;
+    using System.Threading;
+
     class Program
     {
-        private const string KeyWorkers = "Workers";
-        private const string KeyUsername = "Username";
-        private const string KeyPassword = "Password";
-
-        private const string WorkTodoFileName = "worktodo.txt";
-        private const string ResultsFileName = "results.txt";
-        private const string StagingDir = "staging\\";
-        private const string BackupDir = "backup\\";
-        private const string LoggingDir = "logs\\";
-        private const string WebLogsDir = "weblogs\\";
-        private const string TxtExension = ".txt";
-        private const string TestKey = "Test";
-        private const string DblChkKey = "DoubleCheck";
-
-        private static int MinAssignmentCount = 2;
-        private static double LastCredit365 = 0;
-
-        private static readonly DateTime Never = new DateTime();
         private static readonly List<string> folders = new List<string>();
         private static readonly List<Worker> workers = new List<Worker>();
         private static readonly TimeSpan AssignmentCheckInterval = new TimeSpan(0, 10, 11);
         private static readonly TimeSpan ResultCheckInterval = new TimeSpan(0, 1, 3);
-        private static readonly TimeSpan Interval7Days = new TimeSpan(7, 0, 0, 0);
-        private static readonly TimeSpan Interval30Days = new TimeSpan(30, 0, 0, 0);
-        private static readonly TimeSpan Interval90Days = new TimeSpan(90, 0, 0, 0);
-        private static readonly TimeSpan Interval365Days = new TimeSpan(365, 0, 0, 0);
-        private static readonly int ResultUploadOffset = 58 * 60;
+
         private static string username;
         private static string password;
+        private static int UploadOffset = 58 * 60;
+        private static int MinAssignmentCount = 2;
+        private static int ReportOffset = 12 * 60;
+
+        /// <summary>
+        /// Last calculated credit amount.
+        /// </summary>
+        private static double LastCredit365 = 0;
 
         public static void Main(string[] args)
         {
             StdOut("Start");
+            Console.WriteLine();
 
             ReadSettings();
 
@@ -54,10 +39,10 @@ namespace Gimp
                 var worker = new Worker
                 {
                     Directory = folder,
-                    WorkTodoFileName = folder + "\\" + WorkTodoFileName,
-                    WorkTodoTimestamp = Never,
-                    ResultsFileName = folder + "\\" + ResultsFileName,
-                    ResultsTimestamp = Never
+                    WorkTodoFileName = folder + "\\" + Constants.WorkTodoFileName,
+                    WorkTodoTimestamp = Constants.Never,
+                    ResultsFileName = folder + "\\" + Constants.ResultsFileName,
+                    ResultsTimestamp = Constants.Never
                 };
 
                 workers.Add(worker);
@@ -65,9 +50,10 @@ namespace Gimp
 
             Console.WriteLine();
 
-            DateTime lastAssignmentCheck = Never;
-            DateTime lastResultCheck = Never;
+            DateTime lastAssignmentCheck = Constants.Never;
+            DateTime lastResultCheck = Constants.Never;
             bool resultsUploaded = false;
+            bool reportsDownloaded = false;
 
             CalculateStatistics();
 
@@ -89,7 +75,7 @@ namespace Gimp
 
                 var offset = now.Minute * 60 + now.Second;
 
-                if (offset >= ResultUploadOffset)
+                if (offset >= UploadOffset)
                 {
                     if (!resultsUploaded)
                     {
@@ -104,12 +90,25 @@ namespace Gimp
                     resultsUploaded = false;
                 }
 
+                if (offset >= ReportOffset)
+                {
+                    if (!reportsDownloaded)
+                    {
+                        DownloadReports();
+                        reportsDownloaded = true;
+                    }
+                }
+                else
+                {
+                    reportsDownloaded = false;
+                }
+
                 Thread.Sleep(1000);
             }
         }
 
         /// <summary>
-        /// Ensures each work todo file has at least the minimum number of
+        /// Ensures each work todo file has the minimum number of
         /// assignments.
         /// </summary>
         private static void CheckAssignments()
@@ -143,8 +142,8 @@ namespace Gimp
 
                     var trimmed = line.Trim();
 
-                    if (!trimmed.StartsWith(TestKey + "=") &&
-                        !trimmed.StartsWith(DblChkKey + "="))
+                    if (!trimmed.StartsWith(Constants.TestKey + "=") &&
+                        !trimmed.StartsWith(Constants.DblChkKey + "="))
                     {
                         continue;
                     }
@@ -160,7 +159,7 @@ namespace Gimp
                         password,
                         MinAssignmentCount - assignmentLines.Count,
                         1,
-                        Gimps.PreferredWorkType.WorldRecordTests,
+                        Gimps.AssignmentType.WorldRecordTests,
                         null,
                         null));
 
@@ -186,11 +185,11 @@ namespace Gimp
         }
 
         /// <summary>
-        /// Checks for results and writes all results lines to staging file.
+        /// Checks for results and writes results lines to staging file.
         /// </summary>
         private static void CheckResults()
         {
-            var stagingFileName = StagingDir + Guid.NewGuid().ToString() + TxtExension;
+            var stagingFileName = Constants.StagingDir + Guid.NewGuid().ToString() + Constants.TxtExension;
 
             foreach (var worker in workers)
             {
@@ -219,13 +218,20 @@ namespace Gimp
                         continue;
                     }
 
-                    StdOut(string.Format("Results: {0} in folder {1}.", line, worker.Directory));
-
                     resultLines.Add(line);
                 }
 
                 if (resultLines.Any())
                 {
+                    StdOut(string.Format("Result: Found {0} lines in folder {1}:", resultLines.Count, worker.Directory));
+
+                    foreach (var line in resultLines)
+                    {
+                        StdOut(string.Format("Result: {0}", line));
+                    }
+
+                    Console.WriteLine();
+
                     File.AppendAllLines(
                             stagingFileName,
                             resultLines);
@@ -244,7 +250,7 @@ namespace Gimp
         /// </summary>
         private static void UploadCheck()
         {
-            var stagedFiles = new List<string>(Directory.EnumerateFiles(StagingDir, "*.txt"));
+            var stagedFiles = new List<string>(Directory.EnumerateFiles(Constants.StagingDir, "*.txt"));
 
             foreach (var file in stagedFiles)
             {
@@ -278,25 +284,27 @@ namespace Gimp
                     continue;
                 }
 
-                StdOut(string.Format("Upload: Successfully uploaded {0} line(s) from {1}:", resultLines.Count, file));
-
                 var fileName = Path.GetFileName(file);
 
                 File.Move(
-                    StagingDir + fileName,
-                    BackupDir + fileName);
+                    Constants.StagingDir + fileName,
+                    Constants.BackupDir + fileName);
+
+                StdOut(string.Format("Upload: Uploaded {0} line(s) from {1}:", resultLines.Count, file));
 
                 foreach (var line in resultLines)
                 {
                     StdOut(string.Format("Upload: {0}", line));
                 }
+
+                Console.WriteLine();
             }
         }
 
         /// <summary>
         /// Walks through the upload response HTML files in the web logs folder and
-        /// calculates credit received for various periods. Prints a statistics line
-        /// if the result is different from the last run.
+        /// calculates credit received for various periods. Outputs statistics line
+        /// if result is different from last run.
         /// </summary>
         private static void CalculateStatistics()
         {
@@ -305,33 +313,31 @@ namespace Gimp
             var credit30 = 0.0;
             var credit90 = 0.0;
             var credit365 = 0.0;
-
-
-            var stagedFiles = new List<string>(Directory.EnumerateFiles(WebLogsDir, "*.upload.html"));
+            var stagedFiles = new List<string>(Directory.EnumerateFiles(Constants.WebLogsDir, "*.upload.html"));
 
             foreach (var file in stagedFiles)
             {
                 var interval = now - File.GetCreationTimeUtc(file);
 
-                if (interval > Interval365Days)
+                if (interval > Constants.Interval365Days)
                 {
                     continue;
                 }
 
                 var credit = Gimps.ParseCpuCredit(File.ReadAllText(file));
 
-                if (interval > Interval90Days)
+                if (interval > Constants.Interval90Days)
                 {
                     credit365 += credit;
                 }
 
-                if (interval > Interval30Days)
+                if (interval > Constants.Interval30Days)
                 {
                     credit365 += credit;
                     credit90 += credit;
                 }
 
-                if (interval > Interval7Days)
+                if (interval > Constants.Interval7Days)
                 {
                     credit365 += credit;
                     credit90 += credit;
@@ -349,10 +355,29 @@ namespace Gimp
                 return;
             }
 
-            StdOut(string.Format("Stats: 7: {0}, 30: {1}, 90: {2}, 365: {3}", credit7, credit30, credit90, credit365));
+            StdOut(string.Format("Stats:  7: {0}, 30: {1}, 90: {2}, 365: {3}", credit7, credit30, credit90, credit365));
             Console.WriteLine();
 
             LastCredit365 = credit365;
+        }
+
+        private static void DownloadReports()
+        {
+            const int rankLo = 1;
+            const int rankHi = 500;
+
+            var now = DateTime.UtcNow;
+            var hour = now.Minute <= 1 ? now.Hour : now.Hour + 1;
+            var logId = new DateTime(now.Year, now.Month, now.Day, hour, 0, 0).ToString("yyyy-MM-dd-hh");
+            var startDate = Constants.GimpsStart;
+
+            Gimps.GetReport(logId, false, Gimps.ReportType.All, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.TrialFactoring, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.P1Factoring, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.FirstLlTesting, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.DoubleChecking, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.EcmMersenne, rankLo, rankHi, startDate, null);
+            Gimps.GetReport(logId, false, Gimps.ReportType.EcmFermat, rankLo, rankHi, startDate, null);
         }
 
         /// <summary>
@@ -361,15 +386,16 @@ namespace Gimp
         /// <param name="display"></param>
         private static void StdOut(string display)
         {
-            Console.WriteLine("{0} {1}", DateTime.Now.ToString("MMM dd  HH:mm:ss"), display);
+            Console.WriteLine("{0} {1}", DateTime.Now.ToString("MMM dd HH:mm:ss"), display);
         }
 
         /// <summary>
-        /// Read settings from app config file.
+        /// Reads settings from app config file.
         /// </summary>
         private static void ReadSettings()
         {
             var appSettings = ConfigurationManager.AppSettings;
+            var number = 0;
 
             foreach (var key in appSettings.AllKeys)
             {
@@ -377,16 +403,37 @@ namespace Gimp
 
                 switch (key)
                 {
-                    case KeyWorkers:
+                    case Constants.KeyWorkers:
                         folders.AddRange(value.Split(';'));
                         break;
 
-                    case KeyUsername:
+                    case Constants.KeyUsername:
                         username = value;
                         break;
 
-                    case KeyPassword:
+                    case Constants.KeyPassword:
                         password = value;
+                        break;
+
+                    case Constants.KeyUploadOffset:
+                        if (int.TryParse(value, out number))
+                        {
+                            UploadOffset = number * 60;
+                        }
+                        break;
+
+                    case Constants.KeyMinAssignmentCount:
+                        if (int.TryParse(value, out number))
+                        {
+                            MinAssignmentCount = number;
+                        }
+                        break;
+
+                    case Constants.KeyReportOffset:
+                        if (int.TryParse(value, out number))
+                        {
+                            ReportOffset = number * 60;
+                        }
                         break;
                 }
             }
