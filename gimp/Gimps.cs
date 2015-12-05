@@ -1,4 +1,4 @@
-﻿namespace gimp
+﻿namespace Gimp
 {
     using System;
     using System.Text;
@@ -13,27 +13,74 @@
         private const string TestKey = "Test";
         private const string DblChkKey = "DoubleCheck";
 
-        const string BeginBlockMarker = "<!--BEGIN_ASSIGNMENTS_BLOCK-->";
-        const string EndBlockMarker = "<!--END_ASSIGNMENTS_BLOCK-->";
-        const string UserValidationPhrase = "PROCESSING_VALIDATION:ASSIGNED TO ";
-        const string CpuCredit = "CPU credit is ";
-        const string GhzDays = " GHz-days.";
+        private const string BeginBlockMarker = "<!--BEGIN_ASSIGNMENTS_BLOCK-->";
+        private const string EndBlockMarker = "<!--END_ASSIGNMENTS_BLOCK-->";
+        private const string UserValidationPhrase = "PROCESSING_VALIDATION:ASSIGNED TO ";
+        private const string CpuCredit = "CPU credit is ";
+        private const string GhzDays = " GHz-days.";
 
         private const string Accept = "text/html, application/xhtml+xml, */*";
         private const string UserAgent = "Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko";
         private const string UserIdMarker = "name=\"was_logged_in_as\" value=\"";
 
+        /// <summary>
+        /// Assignment types that can be requested from GIMPS server.
+        /// </summary>
         public enum PreferredWorkType
         {
+            /// <summary>
+            /// Invalid assignment type.
+            /// </summary>
+            None = 0,
+
+            /// <summary>
+            /// World record Lucas-Lehmer LL test assignment.
+            /// </summary>
             WorldRecordTests = 102,
+
+            /// <summary>
+            /// Smallest available LL test assignment.
+            /// </summary>
             SmallestAvailableFirstTimeTests = 100,
+
+            /// <summary>
+            /// Double check (DC) test assignment.
+            /// </summary>
             DoubleCheckTests = 101,
+
+            /// <summary>
+            /// P1 factoring test assignment.
+            /// </summary>
             P1Factoring = 4,
+
+            /// <summary>
+            /// Trial factoring (TF) test assignment.
+            /// </summary>
             TrialFactoring = 2,
+
+            /// <summary>
+            /// Elliptic curve factoring test assignment.
+            /// </summary>
             ECMFactoring = 5,
+
+            /// <summary>
+            /// Large number LL test assignment.
+            /// </summary>
             HundredMillionDigitTest = 104
         }
 
+        /// <summary>
+        /// Requests assignments from the GIMPS server.
+        /// </summary>
+        /// <param name="logId">ID string to use for creating the web log file name.</param>
+        /// <param name="userName">User name for login.</param>
+        /// <param name="password">Password for login.</param>
+        /// <param name="cores">How many cores/GPUs to get assignments for.</param>
+        /// <param name="assignmentsToGet">How many assignments to get per core/GPU.</param>
+        /// <param name="workType">The type of work requested.</param>
+        /// <param name="expStart">Lower bound of exponent range (optional).</param>
+        /// <param name="expEnd">Upper bound of exponent range (optional).</param>
+        /// <returns>Enumeration of assignment strings.</returns>
         public static IEnumerable<string> GetAssignments(
             string logId,
             string userName,
@@ -91,14 +138,19 @@
             return UploadResults(logId, resultLines, userId, cookieJar);
         }
 
+        /// <summary>
+        /// Performs an HTTP GET from the given URL.
+        /// </summary>
+        /// <param name="url">Target URL.</param>
+        /// <returns>Response as HTML string.</returns>
         private static string PerformGet(string url)
         {
-            HttpWebRequest web = (HttpWebRequest)WebRequest.Create(url);
+            var web = (HttpWebRequest)WebRequest.Create(url);
             web.UserAgent = UserAgent;
 
-            WebResponse response = web.GetResponse();
+            var response = web.GetResponse();
 
-            using (StreamReader sr = new StreamReader(response.GetResponseStream()))
+            using (var sr = new StreamReader(response.GetResponseStream()))
             {
                 return sr.ReadToEnd();
             }
@@ -206,7 +258,7 @@
         {
             var url = "http://www.mersenne.org/manual_result/default.php";
             var response = string.Empty;
-            var boundary = string.Format("---------------------------{0:x}", DateTime.Now.Ticks).Substring(0, 40);
+            var boundary = string.Format("---------------------------{0:x}", DateTime.UtcNow.Ticks).Substring(0, 40);
             var nl = Environment.NewLine;
             var propertyFormat = "Content-Disposition: form-data; name=\"{0}\"";
             var postData = string.Empty;
@@ -261,6 +313,11 @@
             return response.ToUpper().Contains(Token.ToUpper());
         }
 
+        /// <summary>
+        /// Extracts assignments from response to assignment request.
+        /// </summary>
+        /// <param name="response">The HTML response to process.</param>
+        /// <returns>Enumeration of assignment strings.</returns>
         private static IEnumerable<string> ParseAssignments(string response)
         {
             if (!response.Contains(BeginBlockMarker) ||
@@ -278,6 +335,11 @@
             return assignments.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
         }
 
+        /// <summary>
+        /// Extracts assignment credit from upload response.
+        /// </summary>
+        /// <param name="response">HTML response to assignment upload.</param>
+        /// <returns>Total assignment credit received for completing the uploaded assignments.</returns>
         public static double ParseCpuCredit(string response)
         {
             var total = 0.0;
@@ -314,6 +376,12 @@
             return total;
         }
 
+        /// <summary>
+        /// Logs HTML response to file in web logs folder.
+        /// </summary>
+        /// <param name="logId">The log ID to use for the file name.</param>
+        /// <param name="method">Name of requesting method.</param>
+        /// <param name="response">The HTML response string to log.</param>
         private static void LogResponse(
             string logId,
             string method,

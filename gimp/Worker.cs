@@ -1,4 +1,4 @@
-﻿namespace gimp
+﻿namespace Gimp
 {
     using System;
 
