@@ -51,6 +51,7 @@
     <Compile Include="Gimps.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ReportLine.cs" />
     <Compile Include="Worker.cs" />
   </ItemGroup>
   <ItemGroup>

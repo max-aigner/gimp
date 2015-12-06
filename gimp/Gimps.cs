@@ -4,6 +4,7 @@
     using System.Net;
     using System.IO;
     using System.Collections.Generic;
+    using System.Linq;
 
     /// <summary>
     /// GIMPS specific methods for login, assignments, uploads, parsing etc.
@@ -137,6 +138,10 @@
             var method = reportType.ToString().ToLowerInvariant() + ".report";
 
             LogResponse(logId, method, response);
+
+            var lines = ParseReport(response);
+
+            File.WriteAllLines(logId + "." + method + ".txt", lines.Select(x => x.ToString()));
 
             return response;
         }
@@ -446,6 +451,186 @@
             }
 
             return total;
+        }
+
+        /// <summary>
+        /// Extracts report lines from report response.
+        /// </summary>
+        /// <param name="response">HTML response to report request.</param>
+        /// <returns>Total assignment credit received for completing the uploaded assignments.</returns>
+        public static IEnumerable<ReportLine> ParseReport(string response)
+        {
+            const string StartMarker = "|----- ----- ----- -----";
+            const string Break = "<br>";
+            const string EndMarker = "</pre>";
+            const char BarMarker = '|';
+            const string FiveFieldMarker = "Attempts Successes";
+
+            List<ReportLine> lines = new List<ReportLine>();
+
+            var fiveFields = response.Contains(FiveFieldMarker);
+            var beg = response.IndexOf(StartMarker);
+
+            if (beg < 0)
+            {
+                return null;
+            }
+
+            var br = response.IndexOf(Break, beg + StartMarker.Length);
+
+            while (br >= 0)
+            {
+                var cur = response.Substring(br + Break.Length);
+
+                if (cur.StartsWith(EndMarker))
+                {
+                    break;
+                }
+
+                var bar = cur.IndexOf(BarMarker);
+                var lineText = cur.Substring(0, bar);
+
+                var line = ParseReportLine(lineText, fiveFields);
+
+                lines.Add(line);
+
+                br = response.IndexOf(Break, br + Break.Length);
+            }
+
+            return lines;
+        }
+
+        private static ReportLine ParseReportLine(string text, bool fiveFields)
+        {
+            const string LinkMarkerA = "<a target=\"_blank\" rel=\"nofollow\" href=\"";
+            const string LinkMarkerB = "<a rel=\"nofollow\" target=\"_blank\" href=\"";
+            const string BegNameMarker = "\">";
+            const string EndNameMarker = "</a>";
+            var line = new ReportLine();
+            var i = 0;
+            var beg = 0;
+            var end = 0;
+            var len = 0;
+
+            // Parse the rank information from the beginning
+            while (text[i] == ' ')
+            {
+                i++;
+            }
+
+            beg = i;
+
+            while (text[i] != ' ')
+            {
+                i++;
+            }
+
+            len = i - beg;
+
+            int number;
+
+            if (int.TryParse(text.Substring(beg, len), out number))
+            {
+                line.Rank = number;
+            }
+
+            while (text[i] == ' ')
+            {
+                i++;
+            }
+
+            // Remove the rank text
+            text = text.Substring(i);
+
+            // Parse the rest of the line from the back
+            i = text.Length - 1;
+
+            // Some reports have three fields while others have five
+            if (fiveFields)
+            {
+                while (text[i] == ' ')
+                {
+                    i--;
+                }
+
+                end = i;
+
+                while (text[i] != ' ')
+                {
+                    i--;
+                }
+
+                beg = i + 1;
+                len = end - i;
+
+                if (int.TryParse(text.Substring(beg, len), out number))
+                {
+                    line.Successes = number;
+                }
+
+                while (text[i] == ' ')
+                {
+                    i--;
+                }
+
+                end = i;
+
+                while (text[i] != ' ')
+                {
+                    i--;
+                }
+
+                beg = i + 1;
+                len = end - i;
+
+                if (int.TryParse(text.Substring(beg, len), out number))
+                {
+                    line.Attempts = number;
+                }
+            }
+
+            while (text[i] == ' ')
+            {
+                i--;
+            }
+
+            end = i;
+
+            while (text[i] != ' ')
+            {
+                i--;
+            }
+
+            beg = i + 1;
+            len = end - i;
+
+            double credit;
+
+            if (double.TryParse(text.Substring(beg, len), out credit))
+            {
+                line.Credit = credit;
+            }
+
+            while (text[i] == ' ')
+            {
+                i--;
+            }
+
+            text = text.Substring(0, i + 1);
+
+            if (text.StartsWith(LinkMarkerA) ||
+                text.StartsWith(LinkMarkerB))
+            {
+                i = LinkMarkerA.Length;
+                beg = text.IndexOf(BegNameMarker, LinkMarkerA.Length) + BegNameMarker.Length;
+                end = text.IndexOf(EndNameMarker, beg);
+                len = end - beg;
+                text = text.Substring(beg, len);
+            }
+
+            line.Member = text;
+
+            return line;
         }
 
         /// <summary>
