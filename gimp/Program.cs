@@ -367,8 +367,14 @@
             const int rankHi = 500;
 
             var now = DateTime.UtcNow;
-            var hour = now.Minute <= 1 ? now.Hour : now.Hour + 1;
-            var logId = new DateTime(now.Year, now.Month, now.Day, hour, 0, 0).ToString("yyyy-MM-dd-hh");
+            var logDate = new DateTime(now.Year, now.Month, now.Day, now.Hour, 0, 0);
+
+            if (now.Minute > 1)
+            {
+                logDate = logDate + new TimeSpan(1, 0, 0);
+            }
+
+            var logId = logDate.ToString("yyyy-MM-dd-HH");
             var startDate = Constants.GimpsStart;
 
             Gimps.GetReport(logId, false, Gimps.ReportType.All, rankLo, rankHi, startDate, null);
