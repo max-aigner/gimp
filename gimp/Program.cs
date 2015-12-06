@@ -23,10 +23,15 @@
         /// <summary>
         /// Last calculated credit amount.
         /// </summary>
-        private static double LastCredit365 = 0;
+        private static double LastCreditTotal = 0;
 
         public static void Main(string[] args)
         {
+            var response = File.ReadAllText(Constants.WebLogsDir + "2015-12-06-08.all.report.html");
+            Gimps.ParseReport(response);
+
+            // return;
+
             StdOut("Start");
             Console.WriteLine();
 
@@ -308,57 +313,58 @@
         /// </summary>
         private static void CalculateStatistics()
         {
-            var now = DateTime.UtcNow;
+            var credit1 = 0.0;
             var credit7 = 0.0;
             var credit30 = 0.0;
             var credit90 = 0.0;
             var credit365 = 0.0;
-            var stagedFiles = new List<string>(Directory.EnumerateFiles(Constants.WebLogsDir, "*.upload.html"));
+            var creditTotal = 0.0;
+            var now = DateTime.UtcNow;
+            var uploadFiles = new List<string>(Directory.EnumerateFiles(Constants.WebLogsDir, "*.upload.html"));
 
-            foreach (var file in stagedFiles)
+            foreach (var file in uploadFiles)
             {
                 var interval = now - File.GetCreationTimeUtc(file);
 
-                if (interval > Constants.Interval365Days)
-                {
-                    continue;
-                }
-
                 var credit = Gimps.ParseCpuCredit(File.ReadAllText(file));
 
-                if (interval > Constants.Interval90Days)
+                creditTotal += credit;
+
+                if (interval <= Constants.Interval365Days)
                 {
                     credit365 += credit;
                 }
 
-                if (interval > Constants.Interval30Days)
+                if (interval <= Constants.Interval90Days)
                 {
-                    credit365 += credit;
                     credit90 += credit;
                 }
 
-                if (interval > Constants.Interval7Days)
+                if (interval <= Constants.Interval30Days)
                 {
-                    credit365 += credit;
-                    credit90 += credit;
                     credit30 += credit;
                 }
 
-                credit365 += credit;
-                credit90 += credit;
-                credit30 += credit;
-                credit7 += credit;
+                if (interval <= Constants.Interval7Days)
+                {
+                    credit7 += credit;
+                }
+
+                if (interval <= Constants.Interval1Day)
+                {
+                    credit1 += credit;
+                }
             }
 
-            if (credit365 == LastCredit365)
+            if (creditTotal == LastCreditTotal)
             {
                 return;
             }
 
-            StdOut(string.Format("Stats:  7: {0}, 30: {1}, 90: {2}, 365: {3}", credit7, credit30, credit90, credit365));
+            StdOut(string.Format("Stats:  1: {0}, 7: {1}, 30: {2}, 90: {3}, 365: {4}, total: {5}", credit1, credit7, credit30, credit90, credit365, creditTotal));
             Console.WriteLine();
 
-            LastCredit365 = credit365;
+            LastCreditTotal = creditTotal;
         }
 
         private static void DownloadReports()
