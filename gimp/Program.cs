@@ -28,11 +28,6 @@
 
         public static void Main(string[] args)
         {
-            var response = File.ReadAllText(Constants.WebLogsDir + "2015-12-06-08.all.report.html");
-            Gimps.ParseReport(response);
-
-            // return;
-
             StdOut("Start");
             Console.WriteLine();
 
