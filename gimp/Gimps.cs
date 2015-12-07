@@ -180,6 +180,11 @@
 
             var response = PerformGet(url);
 
+            if (response == null)
+            {
+                return null;
+            }
+
             LogResponse(logId, "assign", response);
 
             return ParseAssignments(response);
@@ -225,11 +230,19 @@
             var web = (HttpWebRequest)WebRequest.Create(url);
             web.UserAgent = UserAgent;
 
-            var response = web.GetResponse();
-
-            using (var sr = new StreamReader(response.GetResponseStream()))
+            try
             {
-                return sr.ReadToEnd();
+                var response = web.GetResponse();
+
+                using (var sr = new StreamReader(response.GetResponseStream()))
+                {
+                    return sr.ReadToEnd();
+                }
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine(e.Message);
+                return null;
             }
         }
 

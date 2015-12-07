@@ -13,6 +13,7 @@
         private static readonly List<Worker> workers = new List<Worker>();
         private static readonly TimeSpan AssignmentCheckInterval = new TimeSpan(0, 10, 11);
         private static readonly TimeSpan ResultCheckInterval = new TimeSpan(0, 1, 3);
+        private static readonly TimeSpan StatisticsInterval = new TimeSpan(0, 6, 0);
 
         private static string username;
         private static string password;
@@ -27,11 +28,6 @@
 
         public static void Main(string[] args)
         {
-            var response = File.ReadAllText(Constants.WebLogsDir + "2015-12-06-08.all.report.html");
-            Gimps.ParseReport(response);
-
-            // return;
-
             StdOut("Start");
             Console.WriteLine();
 
@@ -57,10 +53,9 @@
 
             DateTime lastAssignmentCheck = Constants.Never;
             DateTime lastResultCheck = Constants.Never;
+            DateTime lastStatsCalc = Constants.Never;
             bool resultsUploaded = false;
             bool reportsDownloaded = false;
-
-            CalculateStatistics();
 
             while (true)
             {
@@ -88,6 +83,7 @@
                         resultsUploaded = true;
 
                         CalculateStatistics();
+                        lastStatsCalc = now;
                     }
                 }
                 else
@@ -106,6 +102,12 @@
                 else
                 {
                     reportsDownloaded = false;
+                }
+
+                if (now - lastStatsCalc >= StatisticsInterval)
+                {
+                    CalculateStatistics();
+                    lastStatsCalc = now;
                 }
 
                 Thread.Sleep(1000);
