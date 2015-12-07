@@ -1,5 +1,6 @@
 ﻿namespace Gimp
 {
+    using Microsoft.Win32;
     using System;
     using System.Collections.Generic;
     using System.Configuration;
@@ -13,7 +14,13 @@
         private static readonly List<Worker> workers = new List<Worker>();
         private static readonly TimeSpan AssignmentCheckInterval = new TimeSpan(0, 10, 11);
         private static readonly TimeSpan ResultCheckInterval = new TimeSpan(0, 1, 3);
-        private static readonly TimeSpan StatisticsInterval = new TimeSpan(0, 6, 0);
+        private static readonly TimeSpan StatisticsInterval = new TimeSpan(0, 1, 0);
+
+        /// <summary>
+        /// Password for encrypting the user's password.
+        /// Use Misfit password so config files stay compatible.
+        /// </summary>
+        private static readonly string CryptoPassword = Environment.MachineName.ToUpper() + "]y6P41L[" + Environment.UserName.ToUpper();
 
         private static string username;
         private static string password;
@@ -24,10 +31,18 @@
         /// <summary>
         /// Last calculated credit amount.
         /// </summary>
-        private static double LastCreditTotal = 0;
+        private static double LastCreditHash = 0;
 
         public static void Main(string[] args)
         {
+            if (args.Length == 2 && args[0] == "-p")
+            {
+                SetPassword(args[1]);
+                Console.WriteLine("Password saved");
+
+                return;
+            }
+
             StdOut("Start");
             Console.WriteLine();
 
@@ -53,9 +68,10 @@
 
             DateTime lastAssignmentCheck = Constants.Never;
             DateTime lastResultCheck = Constants.Never;
-            DateTime lastStatsCalc = Constants.Never;
             bool resultsUploaded = false;
             bool reportsDownloaded = false;
+
+            CalculateStatistics();
 
             while (true)
             {
@@ -83,7 +99,6 @@
                         resultsUploaded = true;
 
                         CalculateStatistics();
-                        lastStatsCalc = now;
                     }
                 }
                 else
@@ -102,12 +117,6 @@
                 else
                 {
                     reportsDownloaded = false;
-                }
-
-                if (now - lastStatsCalc >= StatisticsInterval)
-                {
-                    CalculateStatistics();
-                    lastStatsCalc = now;
                 }
 
                 Thread.Sleep(1000);
@@ -358,7 +367,14 @@
                 }
             }
 
-            if (creditTotal == LastCreditTotal)
+            var creditHash = credit1.GetHashCode()
+                ^ credit7.GetHashCode()
+                ^ credit30.GetHashCode()
+                ^ credit90.GetHashCode()
+                ^ credit365.GetHashCode()
+                ^ creditTotal.GetHashCode();
+
+            if (creditHash == LastCreditHash)
             {
                 return;
             }
@@ -366,7 +382,7 @@
             StdOut(string.Format("Stats:  1: {0}, 7: {1}, 30: {2}, 90: {3}, 365: {4}, total: {5}", credit1, credit7, credit30, credit90, credit365, creditTotal));
             Console.WriteLine();
 
-            LastCreditTotal = creditTotal;
+            LastCreditHash = creditHash;
         }
 
         private static void DownloadReports()
@@ -426,7 +442,7 @@
                         break;
 
                     case Constants.KeyPassword:
-                        password = value;
+                        password = Crypto.Decrypt(value, CryptoPassword);
                         break;
 
                     case Constants.KeyUploadOffset:
@@ -450,6 +466,59 @@
                         }
                         break;
                 }
+            }
+        }
+
+        private static void SetPassword(string password)
+        {
+            var enc = Crypto.Encrypt(password, CryptoPassword);
+
+            AddUpdateAppSetting(
+                Constants.KeyPassword,
+                enc);
+        }
+
+        public static byte[] CryptoSalt()
+        {
+            const string keyName = "USER_GUID";
+            var rkey = Registry.CurrentUser;
+
+            var myGuid = (string)rkey.GetValue(keyName, string.Empty);
+
+            if (string.IsNullOrWhiteSpace(myGuid))
+            {
+                myGuid = Guid.NewGuid().ToString();
+                rkey.SetValue(keyName, myGuid);
+            }
+
+            byte[] bytes = new byte[myGuid.Length * sizeof(char)];
+            System.Buffer.BlockCopy(myGuid.ToCharArray(), 0, bytes, 0, bytes.Length);
+
+            return bytes;
+        }
+
+        static void AddUpdateAppSetting(string key, string value)
+        {
+            try
+            {
+                var configFile = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                var settings = configFile.AppSettings.Settings;
+
+                if (settings[key] == null)
+                {
+                    settings.Add(key, value);
+                }
+                else
+                {
+                    settings[key].Value = value;
+                }
+
+                configFile.Save(ConfigurationSaveMode.Modified);
+                ConfigurationManager.RefreshSection(configFile.AppSettings.SectionInformation.Name);
+            }
+            catch (ConfigurationErrorsException)
+            {
+                Console.WriteLine("Error writing app setting ");
             }
         }
     }

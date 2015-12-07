@@ -134,7 +134,6 @@
                 "&end_date=" + (endDate == null ? string.Empty : endDate.Value.ToString("yyyy-MM-dd"));
 
             var response = PerformGet(url);
-
             var method = reportType.ToString().ToLowerInvariant() + ".report";
 
             LogResponse(logId, method, response);
