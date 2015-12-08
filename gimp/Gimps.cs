@@ -140,7 +140,7 @@
 
             var lines = ParseReport(response);
 
-            File.WriteAllLines(logId + "." + method + ".txt", lines.Select(x => x.ToString()));
+            File.WriteAllLines(Constants.ReportsDir + logId + "." + method + ".txt", lines.Select(x => x.ToString()));
 
             return response;
         }

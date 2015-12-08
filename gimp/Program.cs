@@ -14,7 +14,6 @@
         private static readonly List<Worker> workers = new List<Worker>();
         private static readonly TimeSpan AssignmentCheckInterval = new TimeSpan(0, 10, 11);
         private static readonly TimeSpan ResultCheckInterval = new TimeSpan(0, 1, 3);
-        private static readonly TimeSpan StatisticsInterval = new TimeSpan(0, 1, 0);
 
         /// <summary>
         /// Password for encrypting the user's password.
@@ -24,9 +23,9 @@
 
         private static string username;
         private static string password;
-        private static int UploadOffset = 58 * 60;
         private static int MinAssignmentCount = 2;
-        private static int ReportOffset = 12 * 60;
+        private static TimeSpan UploadOffset = new TimeSpan(0, 58, 0);
+        private static TimeSpan ReportOffset = new TimeSpan(0, 12, 0);
 
         /// <summary>
         /// Last calculated credit amount.
@@ -89,9 +88,10 @@
                     lastResultCheck = now;
                 }
 
-                var offset = now.Minute * 60 + now.Second;
+                var hourlyOffset = new TimeSpan(0, now.Minute, now.Second);
+                var dailyOffset = new TimeSpan(now.Hour, now.Minute, now.Second);
 
-                if (offset >= UploadOffset)
+                if (hourlyOffset >= UploadOffset)
                 {
                     if (!resultsUploaded)
                     {
@@ -106,7 +106,7 @@
                     resultsUploaded = false;
                 }
 
-                if (offset >= ReportOffset)
+                if (hourlyOffset >= ReportOffset)
                 {
                     if (!reportsDownloaded)
                     {
@@ -205,7 +205,7 @@
         /// </summary>
         private static void CheckResults()
         {
-            var stagingFileName = Constants.StagingDir + Guid.NewGuid().ToString() + Constants.TxtExension;
+            var stagingFileName = Constants.StagingDir + Guid.NewGuid().ToString() + Constants.TxtExtension;
 
             foreach (var worker in workers)
             {
@@ -239,7 +239,7 @@
 
                 if (resultLines.Any())
                 {
-                    StdOut(string.Format("Result: Found {0} lines in folder {1}:", resultLines.Count, worker.Directory));
+                    StdOut(string.Format("Result: Found {0} line(s) in folder {1}:", resultLines.Count, worker.Directory));
 
                     foreach (var line in resultLines)
                     {
@@ -445,13 +445,6 @@
                         password = Crypto.Decrypt(value, CryptoPassword);
                         break;
 
-                    case Constants.KeyUploadOffset:
-                        if (int.TryParse(value, out number))
-                        {
-                            UploadOffset = number * 60;
-                        }
-                        break;
-
                     case Constants.KeyMinAssignmentCount:
                         if (int.TryParse(value, out number))
                         {
@@ -459,10 +452,17 @@
                         }
                         break;
 
+                    case Constants.KeyUploadOffset:
+                        if (int.TryParse(value, out number))
+                        {
+                            UploadOffset = new TimeSpan(0, number, 0);
+                        }
+                        break;
+
                     case Constants.KeyReportOffset:
                         if (int.TryParse(value, out number))
                         {
-                            ReportOffset = number * 60;
+                            ReportOffset = new TimeSpan(0, number, 0);
                         }
                         break;
                 }
