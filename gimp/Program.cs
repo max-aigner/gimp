@@ -424,7 +424,7 @@
         /// </summary>
         private static void ReadSettings()
         {
-            var appSettings = ConfigurationManager.AppSettings;
+            var appSettings = new IniFile(Constants.IniFileName);
             var number = 0;
 
             foreach (var key in appSettings.AllKeys)
@@ -433,8 +433,9 @@
 
                 switch (key)
                 {
-                    case Constants.KeyWorkers:
-                        folders.AddRange(value.Split(';'));
+                    case Constants.KeyWorker:
+                        var values = appSettings.GetValues(key);
+                        folders.AddRange(values);
                         break;
 
                     case Constants.KeyUsername:
@@ -471,11 +472,12 @@
 
         private static void SetPassword(string password)
         {
+            var appSettings = new IniFile(Constants.IniFileName);
             var enc = Crypto.Encrypt(password, CryptoPassword);
 
-            AddUpdateAppSetting(
-                Constants.KeyPassword,
-                enc);
+            appSettings.Set(Constants.KeyPassword, enc);
+
+            appSettings.Refresh();
         }
 
         public static byte[] CryptoSalt()
@@ -492,34 +494,9 @@
             }
 
             byte[] bytes = new byte[myGuid.Length * sizeof(char)];
-            System.Buffer.BlockCopy(myGuid.ToCharArray(), 0, bytes, 0, bytes.Length);
+            Buffer.BlockCopy(myGuid.ToCharArray(), 0, bytes, 0, bytes.Length);
 
             return bytes;
-        }
-
-        static void AddUpdateAppSetting(string key, string value)
-        {
-            try
-            {
-                var configFile = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
-                var settings = configFile.AppSettings.Settings;
-
-                if (settings[key] == null)
-                {
-                    settings.Add(key, value);
-                }
-                else
-                {
-                    settings[key].Value = value;
-                }
-
-                configFile.Save(ConfigurationSaveMode.Modified);
-                ConfigurationManager.RefreshSection(configFile.AppSettings.SectionInformation.Name);
-            }
-            catch (ConfigurationErrorsException)
-            {
-                Console.WriteLine("Error writing app setting ");
-            }
         }
     }
 }

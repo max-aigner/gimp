@@ -12,13 +12,14 @@
         public static readonly TimeSpan Interval90Days = new TimeSpan(90, 0, 0, 0);
         public static readonly TimeSpan Interval365Days = new TimeSpan(365, 0, 0, 0);
 
-        public const string KeyWorkers = "Workers";
+        public const string KeyWorker = "Worker";
         public const string KeyUsername = "Username";
         public const string KeyPassword = "Password";
         public const string KeyMinAssignmentCount = "MinAssignmentCount";
         public const string KeyUploadOffset = "UploadOffset";
         public const string KeyReportOffset = "ReportOffset";
 
+        public const string IniFileName = "gimp.config.txt";
         public const string WorkTodoFileName = "worktodo.txt";
         public const string ResultsFileName = "results.txt";
 
