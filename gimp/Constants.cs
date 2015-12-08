@@ -15,8 +15,8 @@
         public const string KeyWorkers = "Workers";
         public const string KeyUsername = "Username";
         public const string KeyPassword = "Password";
-        public const string KeyUploadOffset = "UploadOffset";
         public const string KeyMinAssignmentCount = "MinAssignmentCount";
+        public const string KeyUploadOffset = "UploadOffset";
         public const string KeyReportOffset = "ReportOffset";
 
         public const string WorkTodoFileName = "worktodo.txt";
@@ -26,8 +26,9 @@
         public const string BackupDir = "backup\\";
         public const string LoggingDir = "logs\\";
         public const string WebLogsDir = "weblogs\\";
+        public const string ReportsDir = "reports\\";
 
-        public const string TxtExension = ".txt";
+        public const string TxtExtension = ".txt";
 
         public const string TestKey = "Test";
         public const string DblChkKey = "DoubleCheck";

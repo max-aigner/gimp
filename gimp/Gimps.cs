@@ -134,14 +134,13 @@
                 "&end_date=" + (endDate == null ? string.Empty : endDate.Value.ToString("yyyy-MM-dd"));
 
             var response = PerformGet(url);
-
             var method = reportType.ToString().ToLowerInvariant() + ".report";
 
             LogResponse(logId, method, response);
 
             var lines = ParseReport(response);
 
-            File.WriteAllLines(logId + "." + method + ".txt", lines.Select(x => x.ToString()));
+            File.WriteAllLines(Constants.ReportsDir + logId + "." + method + ".txt", lines.Select(x => x.ToString()));
 
             return response;
         }
