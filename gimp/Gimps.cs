@@ -5,6 +5,7 @@
     using System.IO;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Xml;
 
     /// <summary>
     /// GIMPS specific methods for login, assignments, uploads, parsing etc.
@@ -124,7 +125,7 @@
             DateTime? startDate,
             DateTime? endDate)
         {
-            string url =
+            var url =
                 "http://www.mersenne.org/report_top_500_custom/?" +
                 "team_flag=" + (teamFlag ? "1" : "0") +
                 "&type=" + (int)reportType +
@@ -146,6 +147,117 @@
         }
 
         /// <summary>
+        /// Upload results to GIMPS
+        /// </summary>
+        /// <param name="username">GIMPS user name</param>
+        /// <param name="password">GIMPS password</param>
+        /// <param name="fullFilename">The file containing .</param>
+        /// <returns>Whether the upload succeeded.</returns>
+        public static IEnumerable<ResultsLine> GetResults(
+            string logId,
+            string username,
+            string password,
+            bool excludeUnsuccessfulTf,
+            bool excludeUnsuccessP1,
+            bool excludeUnsuccessEcm,
+            bool excludeLl,
+            bool excludeFactorsFound,
+            int? expStart,
+            int? expEnd,
+            int? limit)
+        {
+            var cookieJar = new CookieContainer();
+
+            if (!Login(logId, username, password, cookieJar))
+            {
+                return new ResultsLine[0];
+            }
+
+            var response = GetResults(
+                logId,
+                cookieJar,
+                excludeUnsuccessfulTf,
+                excludeUnsuccessP1,
+                excludeUnsuccessEcm,
+                excludeLl,
+                excludeFactorsFound,
+                expStart,
+                expEnd,
+                limit);
+
+            if (response == null)
+            {
+                return new ResultsLine[0];
+            }
+
+            return ParseResults(response);
+        }
+
+        /// <summary>
+        /// Downloads results from GIMPS.
+        /// </summary>
+        /// <param name="logId"></param>
+        /// <param name="teamFlag"></param>
+        /// <param name="reportType"></param>
+        /// <param name="rankLow"></param>
+        /// <param name="rankHigh"></param>
+        /// <param name="startDate"></param>
+        /// <param name="endDate"></param>
+        /// <returns></returns>
+        private static string GetResults(
+            string logId,
+            CookieContainer cookieJar,
+            bool excludeUnsuccessfulTf,
+            bool excludeUnsuccessP1,
+            bool excludeUnsuccessEcm,
+            bool excludeLl,
+            bool excludeFactorsFound,
+            int? expStart,
+            int? expEnd,
+            int? limit)
+        {
+            var parameters = new List<string>();
+            var url = "http://www.mersenne.org/results/?";
+
+            if (excludeUnsuccessfulTf)
+            {
+                parameters.Add("extf=1");
+            }
+
+            if (excludeUnsuccessP1)
+            {
+                parameters.Add("exp1=1");
+            }
+
+            if (excludeUnsuccessEcm)
+            {
+                parameters.Add("execm=1");
+            }
+
+            if (excludeLl)
+            {
+                parameters.Add("exll=1");
+            }
+
+            if (excludeFactorsFound)
+            {
+                parameters.Add("exfac=1");
+            }
+
+            parameters.Add("exp_lo=" + (expStart.HasValue ? expStart.Value.ToString() : string.Empty));
+            parameters.Add("exp_hi=" + (expEnd.HasValue ? expEnd.Value.ToString() : string.Empty));
+            parameters.Add("limit=" + (limit.HasValue ? limit.Value.ToString() : string.Empty));
+
+            url += string.Join("&", parameters);
+
+            var response = PerformGet(url, cookieJar);
+
+            LogResponse(logId, "results", response);
+
+            return response;
+        }
+
+        /// <summary>
         /// Requests assignments from the GIMPS server.
         /// </summary>
         /// <param name="logId">ID string to use for creating the web log file name.</param>
@@ -153,7 +265,7 @@
         /// <param name="password">Password for login.</param>
         /// <param name="cores">How many cores/GPUs to get assignments for.</param>
         /// <param name="assignmentsToGet">How many assignments to get per core/GPU.</param>
-        /// <param name="workType">The type of work requested.</param>
+        /// <param name="assignmentType">The type of assignment requested.</param>
         /// <param name="expStart">Lower bound of exponent range (optional).</param>
         /// <param name="expEnd">Upper bound of exponent range (optional).</param>
         /// <returns>Enumeration of assignment strings.</returns>
@@ -163,7 +275,7 @@
             string password,
             int cores,
             int assignmentsToGet,
-            AssignmentType workType,
+            AssignmentType assignmentType,
             int? expStart,
             int? expEnd)
         {
@@ -172,7 +284,7 @@
                 "&user_password=" + password +
                 "&cores=" + cores +
                 "&num_to_get=" + assignmentsToGet +
-                "&pref=" + (int)workType +
+                "&pref=" + (int)assignmentType +
                 "&exp_lo=" + expStart +
                 "&exp_hi=" + expEnd +
                 "&B1=Get+Assignments";
@@ -224,14 +336,32 @@
         /// </summary>
         /// <param name="url">Target URL.</param>
         /// <returns>Response as HTML string.</returns>
-        private static string PerformGet(string url)
+        private static string PerformGet(
+            string url)
         {
-            var web = (HttpWebRequest)WebRequest.Create(url);
-            web.UserAgent = UserAgent;
+            return PerformGet(url, null);
+        }
+
+        /// <summary>
+        /// Performs an HTTP GET from the given URL.
+        /// </summary>
+        /// <param name="url">Target URL.</param>
+        /// <returns>Response as HTML string.</returns>
+        private static string PerformGet(
+            string url,
+            CookieContainer cookieJar)
+        {
+            var request = (HttpWebRequest)WebRequest.Create(url);
+            request.UserAgent = UserAgent;
+
+            if (cookieJar != null)
+            {
+                request.CookieContainer = cookieJar;
+            }
 
             try
             {
-                var response = web.GetResponse();
+                var response = request.GetResponse();
 
                 using (var sr = new StreamReader(response.GetResponseStream()))
                 {
@@ -429,9 +559,9 @@
         /// </summary>
         /// <param name="response">HTML response to assignment upload.</param>
         /// <returns>Total assignment credit received for completing the uploaded assignments.</returns>
-        public static double ParseCpuCredit(string response)
+        public static decimal ParseCpuCredit(string response)
         {
-            var total = 0.0;
+            var total = 0m;
             var pos = 0;
 
             while (true)
@@ -452,9 +582,9 @@
                     continue;
                 }
 
-                var credit = 0.0;
+                decimal credit;
 
-                if (double.TryParse(response.Substring(beg, len), out credit))
+                if (decimal.TryParse(response.Substring(beg, len), out credit))
                 {
                     total += credit;
                 }
@@ -478,8 +608,7 @@
             const char BarMarker = '|';
             const string FiveFieldMarker = "Attempts Successes";
 
-            List<ReportLine> lines = new List<ReportLine>();
-
+            var lines = new List<ReportLine>();
             var fiveFields = response.Contains(FiveFieldMarker);
             var beg = response.IndexOf(StartMarker);
 
@@ -616,9 +745,9 @@
             beg = i + 1;
             len = end - i;
 
-            double credit;
+            decimal credit;
 
-            if (double.TryParse(text.Substring(beg, len), out credit))
+            if (decimal.TryParse(text.Substring(beg, len), out credit))
             {
                 line.Credit = credit;
             }
@@ -641,6 +770,90 @@
             }
 
             line.Member = text;
+
+            return line;
+        }
+
+        /// <summary>
+        /// Extracts result lines from results response.
+        /// </summary>
+        /// <param name="response">HTML response to results request.</param>
+        /// <returns>Enumeration of result lines.</returns>
+        public static IEnumerable<ResultsLine> ParseResults(string response)
+        {
+            const string StartMarker = "<tbody>";
+            const string EndMarker = "</tbody>";
+
+            var lines = new List<ResultsLine>();
+            var beg = response.IndexOf(StartMarker);
+            var end = response.IndexOf(EndMarker);
+
+            if (beg < 0 || end < 0 || beg > end)
+            {
+                return null;
+            }
+
+            end += EndMarker.Length;
+
+            // Fix up ampersands so string can be parsed as XML fragment.
+            var xml = response.Substring(beg, end - beg).Replace("&full", "&amp;full");
+            var xmlDoc = new XmlDocument();
+
+            try
+            {
+                xmlDoc.LoadXml(xml);
+            }
+            catch (XmlException e)
+            {
+                Console.WriteLine(e.Message);
+                return new ResultsLine[0];
+            }
+
+            foreach (XmlNode row in xmlDoc.DocumentElement.ChildNodes)
+            {
+                var line = ParseResultsLine(row);
+
+                lines.Add(line);
+            }
+
+            return lines;
+        }
+
+        private static ResultsLine ParseResultsLine(XmlNode row)
+        {
+            var line = new ResultsLine();
+            var childNodes = row.ChildNodes;
+
+            line.CpuName = childNodes[0].InnerText;
+            long exponent;
+
+            if (long.TryParse(childNodes[1].FirstChild.InnerText, out exponent))
+            {
+                line.Exponent = exponent;
+            }
+
+            line.ResultType = childNodes[2].InnerText;
+            DateTime received;
+
+            if (DateTime.TryParse(childNodes[3].InnerText, out received))
+            {
+                line.Received = received;
+            }
+
+            double days;
+
+            if (double.TryParse(childNodes[4].InnerText, out days))
+            {
+                line.Age = TimeSpan.FromDays(days);
+            }
+
+            line.Result = childNodes[5].InnerText;
+            decimal credit;
+
+            if (decimal.TryParse(childNodes[6].InnerText, out credit))
+            {
+                line.Credit = credit;
+            }
 
             return line;
         }
