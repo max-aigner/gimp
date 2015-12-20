@@ -35,10 +35,27 @@
 
         public static void Main(string[] args)
         {
-            if (args.Length == 2 && args[0] == "-p")
+            if (args.Length >= 1)
             {
-                SetPassword(args[1]);
-                Console.WriteLine("Password saved");
+                switch (args[0])
+                {
+                    case "-?":
+                    case "/?":
+                        Usage();
+                        break;
+
+                    case "-p":
+                    case "/p":
+                        if (args.Length < 2)
+                        {
+                            Usage();
+                        }
+                        else
+                        {
+                            SetPassword(args[1]);
+                        }
+                        break;
+                }
 
                 return;
             }
@@ -68,11 +85,9 @@
 
             var lastAssignmentCheck = Constants.Never;
             var lastResultCheck = Constants.Never;
-            var lastStatisticsCheck = DateTime.UtcNow;
+            var lastStatisticsCheck = Constants.Never;
             var resultsUploaded = false;
             var reportsDownloaded = false;
-
-            CalculateStatistics();
 
             while (true)
             {
@@ -477,6 +492,9 @@
             LastCreditHashCode = creditHashCode;
         }
 
+        /// <summary>
+        /// Downloads reports from the GIMPS website.
+        /// </summary>
         private static void DownloadReports()
         {
             const int rankLo = 1;
@@ -562,6 +580,21 @@
             }
         }
 
+        /// <summary>
+        /// Outputs usage information.
+        /// </summary>
+        private static void Usage()
+        {
+            Console.WriteLine("Automated GIMPS assignment and results management.");
+            Console.WriteLine("Normal operation:   gimp");
+            Console.WriteLine("Usage hints:        gimp -?");
+            Console.WriteLine("Set GIMPS password: gimp -p password");
+        }
+
+        /// <summary>
+        /// Encrypts password and saves it in settings file.
+        /// </summary>
+        /// <param name="password"></param>
         private static void SetPassword(string password)
         {
             var appSettings = new IniFile(Constants.IniFileName);
@@ -570,11 +603,17 @@
             appSettings.Set(Constants.KeyPassword, enc);
 
             appSettings.Refresh();
+
+            Console.WriteLine("Password saved");
         }
 
+        /// <summary>
+        /// Retrieves string used as crypto salt.
+        /// </summary>
+        /// <returns>Crypto salt.</returns>
         public static byte[] CryptoSalt()
         {
-            const string keyName = "USER_GUID";
+            const string keyName = "UserGuid";
             var rkey = Registry.CurrentUser;
 
             var myGuid = (string)rkey.GetValue(keyName, string.Empty);

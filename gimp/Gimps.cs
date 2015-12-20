@@ -147,12 +147,20 @@
         }
 
         /// <summary>
-        /// Upload results to GIMPS
+        /// Downloads results table from GIMPS.
         /// </summary>
+        /// <param name="logId">ID for log file.</param>
         /// <param name="username">GIMPS user name</param>
         /// <param name="password">GIMPS password</param>
-        /// <param name="fullFilename">The file containing .</param>
-        /// <returns>Whether the upload succeeded.</returns>
+        /// <param name="excludeUnsuccessfulTf">Whether to exclude unsuccessful trial factoring results.</param>
+        /// <param name="excludeUnsuccessP1">Whether to exclude unsuccessful P1 factoring results.</param>
+        /// <param name="excludeUnsuccessEcm">Whether to exclude unsuccessful ECM factoring results.</param>
+        /// <param name="excludeLl">Whether to exclude LL results.</param>
+        /// <param name="excludeFactorsFound">Whether to exclude factors found.</param>
+        /// <param name="expStart">Optional lower bound of exponent range.</param>
+        /// <param name="expEnd">Optional upper bound of exponent range.</param>
+        /// <param name="limit">Maximum number of results desired.</param>
+        /// <returns>Enumeration of results lines.</returns>
         public static IEnumerable<ResultsLine> GetResults(
             string logId,
             string username,
@@ -196,14 +204,17 @@
         /// <summary>
         /// Downloads results from GIMPS.
         /// </summary>
-        /// <param name="logId"></param>
-        /// <param name="teamFlag"></param>
-        /// <param name="reportType"></param>
-        /// <param name="rankLow"></param>
-        /// <param name="rankHigh"></param>
-        /// <param name="startDate"></param>
-        /// <param name="endDate"></param>
-        /// <returns></returns>
+        /// <param name="logId">ID for log file.</param>
+        /// <param name="cookieJar">Cookie container.</param>
+        /// <param name="excludeUnsuccessfulTf">Whether to exclude unsuccessful trial factoring results.</param>
+        /// <param name="excludeUnsuccessP1">Whether to exclude unsuccessful P1 factoring results.</param>
+        /// <param name="excludeUnsuccessEcm">Whether to exclude unsuccessful ECM factoring results.</param>
+        /// <param name="excludeLl">Whether to exclude LL results.</param>
+        /// <param name="excludeFactorsFound">Whether to exclude factors found.</param>
+        /// <param name="expStart">Optional lower bound of exponent range.</param>
+        /// <param name="expEnd">Optional upper bound of exponent range.</param>
+        /// <param name="limit">Maximum number of results desired.</param>
+        /// <returns>Enumeration of results lines.</returns>
         private static string GetResults(
             string logId,
             CookieContainer cookieJar,
@@ -268,7 +279,7 @@
         /// <param name="assignmentType">The type of assignment requested.</param>
         /// <param name="expStart">Lower bound of exponent range (optional).</param>
         /// <param name="expEnd">Upper bound of exponent range (optional).</param>
-        /// <returns>Enumeration of assignment strings.</returns>
+        /// <returns>Enumeration of assignment lines.</returns>
         public static IEnumerable<string> GetAssignments(
             string logId,
             string userName,
@@ -402,18 +413,26 @@
             request.CookieContainer = cookieJar;
             request.ContentLength = postData.Length;
 
-            // Write the request
-            using (var requestStream = request.GetRequestStream())
+            try
             {
-                var requestWriter = new StreamWriter(requestStream);
-                requestWriter.Write(postData);
-                requestWriter.Flush();
-            }
+                // Write the request
+                using (var requestStream = request.GetRequestStream())
+                {
+                    var requestWriter = new StreamWriter(requestStream);
+                    requestWriter.Write(postData);
+                    requestWriter.Flush();
+                }
 
-            // Read the response
-            using (var responseStream = new StreamReader(request.GetResponse().GetResponseStream()))
+                // Read the response
+                using (var responseStream = new StreamReader(request.GetResponse().GetResponseStream()))
+                {
+                    response = responseStream.ReadToEnd();
+                }
+            }
+            catch (WebException e)
             {
-                response = responseStream.ReadToEnd();
+                Console.WriteLine(e.Message);
+                response = string.Empty;
             }
 
             LogResponse(logId, "login", response);
@@ -435,10 +454,18 @@
             var request = (HttpWebRequest)WebRequest.Create(url);
             request.CookieContainer = cookieJar;
 
-            // Read the response
-            using (var responseStream = new StreamReader(request.GetResponse().GetResponseStream()))
+            try
             {
-                response = responseStream.ReadToEnd();
+                // Read the response
+                using (var responseStream = new StreamReader(request.GetResponse().GetResponseStream()))
+                {
+                    response = responseStream.ReadToEnd();
+                }
+            }
+            catch (WebException e)
+            {
+                Console.WriteLine(e.Message);
+                response = string.Empty;
             }
 
             var beg = response.IndexOf(UserIdMarker);
@@ -511,18 +538,26 @@
             request.ContentLength = postData.Length;
             request.CookieContainer = cookieJar;
 
-            // Write the request
-            using (var requestStream = request.GetRequestStream())
+            try
             {
-                var reqWriter = new StreamWriter(requestStream);
-                reqWriter.Write(postData);
-                reqWriter.Flush();
-            }
+                // Write the request
+                using (var requestStream = request.GetRequestStream())
+                {
+                    var reqWriter = new StreamWriter(requestStream);
+                    reqWriter.Write(postData);
+                    reqWriter.Flush();
+                }
 
-            // Read the response
-            using (var responseStream = new StreamReader(request.GetResponse().GetResponseStream()))
+                // Read the response
+                using (var responseStream = new StreamReader(request.GetResponse().GetResponseStream()))
+                {
+                    response = responseStream.ReadToEnd();
+                }
+            }
+            catch (WebException e)
             {
-                response = responseStream.ReadToEnd();
+                Console.WriteLine(e.Message);
+                response = string.Empty;
             }
 
             LogResponse(logId, "upload", response);
@@ -641,6 +676,12 @@
             return lines;
         }
 
+        /// <summary>
+        /// Parses a sinle report line.
+        /// </summary>
+        /// <param name="text">Report line string.</param>
+        /// <param name="fiveFields">Indicates whether this is a five field report line.</param>
+        /// <returns>Parsed report line.</returns>
         private static ReportLine ParseReportLine(string text, bool fiveFields)
         {
             const string LinkMarkerA = "<a target=\"_blank\" rel=\"nofollow\" href=\"";
@@ -811,7 +852,7 @@
 
             foreach (XmlNode row in xmlDoc.DocumentElement.ChildNodes)
             {
-                var line = ParseResultsLine(row);
+                var line = ParseResultsRow(row);
 
                 lines.Add(line);
             }
@@ -819,7 +860,12 @@
             return lines;
         }
 
-        private static ResultsLine ParseResultsLine(XmlNode row)
+        /// <summary>
+        /// Parses a single results row.
+        /// </summary>
+        /// <param name="row"></param>
+        /// <returns>Results from row.</returns>
+        private static ResultsLine ParseResultsRow(XmlNode row)
         {
             var line = new ResultsLine();
             var childNodes = row.ChildNodes;
