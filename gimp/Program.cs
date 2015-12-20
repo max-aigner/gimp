@@ -14,6 +14,7 @@
         private static readonly List<Worker> workers = new List<Worker>();
         private static readonly TimeSpan AssignmentCheckInterval = new TimeSpan(0, 10, 11);
         private static readonly TimeSpan ResultCheckInterval = new TimeSpan(0, 1, 3);
+        private static readonly TimeSpan StatisticsInterval = new TimeSpan(0, 20, 11);
 
         /// <summary>
         /// Password for encrypting the user's password.
@@ -30,14 +31,31 @@
         /// <summary>
         /// Last calculated credit amount.
         /// </summary>
-        private static double LastCreditHash = 0;
+        private static int LastCreditHashCode = 0;
 
         public static void Main(string[] args)
         {
-            if (args.Length == 2 && args[0] == "-p")
+            if (args.Length >= 1)
             {
-                SetPassword(args[1]);
-                Console.WriteLine("Password saved");
+                switch (args[0])
+                {
+                    case "-?":
+                    case "/?":
+                        Usage();
+                        break;
+
+                    case "-p":
+                    case "/p":
+                        if (args.Length < 2)
+                        {
+                            Usage();
+                        }
+                        else
+                        {
+                            SetPassword(args[1]);
+                        }
+                        break;
+                }
 
                 return;
             }
@@ -65,16 +83,15 @@
 
             Console.WriteLine();
 
-            DateTime lastAssignmentCheck = Constants.Never;
-            DateTime lastResultCheck = Constants.Never;
-            bool resultsUploaded = false;
-            bool reportsDownloaded = false;
-
-            CalculateStatistics();
+            var lastAssignmentCheck = Constants.Never;
+            var lastResultCheck = Constants.Never;
+            var lastStatisticsCheck = Constants.Never;
+            var resultsUploaded = false;
+            var reportsDownloaded = false;
 
             while (true)
             {
-                DateTime now = DateTime.UtcNow;
+                var now = DateTime.UtcNow;
 
                 if (now - lastAssignmentCheck >= AssignmentCheckInterval)
                 {
@@ -88,6 +105,12 @@
                     lastResultCheck = now;
                 }
 
+                if (now - lastStatisticsCheck >= StatisticsInterval)
+                {
+                    CalculateStatistics();
+                    lastStatisticsCheck = now;
+                }
+
                 var hourlyOffset = new TimeSpan(0, now.Minute, now.Second);
                 var dailyOffset = new TimeSpan(now.Hour, now.Minute, now.Second);
 
@@ -99,6 +122,7 @@
                         resultsUploaded = true;
 
                         CalculateStatistics();
+                        lastStatisticsCheck = now;
                     }
                 }
                 else
@@ -318,18 +342,101 @@
         }
 
         /// <summary>
+        /// Requests a report for all LL assignment results and calculates
+        /// credit received for various periods. Outputs statistics line
+        /// if new result is different from last run.
+        /// </summary>
+        private static void CalculateStatistics()
+        {
+            var credit1 = 0m;
+            var credit7 = 0m;
+            var credit30 = 0m;
+            var credit90 = 0m;
+            var credit365 = 0m;
+            var creditTotal = 0m;
+            var now = DateTime.UtcNow;
+            var lines = Gimps.GetResults(
+                Guid.NewGuid().ToString(),
+                username,
+                password,
+                true,
+                true,
+                true,
+                false,
+                true,
+                null,
+                null,
+                500);
+
+            foreach (var line in lines)
+            {
+                if (line.ResultType != Constants.ResultTypeLl)
+                {
+                    continue;
+                }
+
+                var interval = now - line.Received;
+                var credit = line.Credit;
+
+                creditTotal += credit;
+
+                if (interval <= Constants.Interval365Days)
+                {
+                    credit365 += credit;
+                }
+
+                if (interval <= Constants.Interval90Days)
+                {
+                    credit90 += credit;
+                }
+
+                if (interval <= Constants.Interval30Days)
+                {
+                    credit30 += credit;
+                }
+
+                if (interval <= Constants.Interval7Days)
+                {
+                    credit7 += credit;
+                }
+
+                if (interval <= Constants.Interval1Day)
+                {
+                    credit1 += credit;
+                }
+            }
+
+            var creditHashCode = credit1.GetHashCode()
+                ^ credit7.GetHashCode()
+                ^ credit30.GetHashCode()
+                ^ credit90.GetHashCode()
+                ^ credit365.GetHashCode()
+                ^ creditTotal.GetHashCode();
+
+            if (creditHashCode == LastCreditHashCode)
+            {
+                return;
+            }
+
+            StdOut(string.Format("Stats:  1: {0:F3}, 7: {1:F3}, 30: {2:F3}, 90: {3:F3}, 365: {4:F3}, total: {5:F3}", credit1, credit7, credit30, credit90, credit365, creditTotal));
+            Console.WriteLine();
+
+            LastCreditHashCode = creditHashCode;
+        }
+
+        /// <summary>
         /// Walks through the upload response HTML files in the web logs folder and
         /// calculates credit received for various periods. Outputs statistics line
         /// if result is different from last run.
         /// </summary>
-        private static void CalculateStatistics()
+        private static void CalculateStatisticsLocal()
         {
-            var credit1 = 0.0;
-            var credit7 = 0.0;
-            var credit30 = 0.0;
-            var credit90 = 0.0;
-            var credit365 = 0.0;
-            var creditTotal = 0.0;
+            var credit1 = 0m;
+            var credit7 = 0m;
+            var credit30 = 0m;
+            var credit90 = 0m;
+            var credit365 = 0m;
+            var creditTotal = 0m;
             var now = DateTime.UtcNow;
             var uploadFiles = new List<string>(Directory.EnumerateFiles(Constants.WebLogsDir, "*.upload.html"));
 
@@ -367,14 +474,14 @@
                 }
             }
 
-            var creditHash = credit1.GetHashCode()
+            var creditHashCode = credit1.GetHashCode()
                 ^ credit7.GetHashCode()
                 ^ credit30.GetHashCode()
                 ^ credit90.GetHashCode()
                 ^ credit365.GetHashCode()
                 ^ creditTotal.GetHashCode();
 
-            if (creditHash == LastCreditHash)
+            if (creditHashCode == LastCreditHashCode)
             {
                 return;
             }
@@ -382,9 +489,12 @@
             StdOut(string.Format("Stats:  1: {0}, 7: {1}, 30: {2}, 90: {3}, 365: {4}, total: {5}", credit1, credit7, credit30, credit90, credit365, creditTotal));
             Console.WriteLine();
 
-            LastCreditHash = creditHash;
+            LastCreditHashCode = creditHashCode;
         }
 
+        /// <summary>
+        /// Downloads reports from the GIMPS website.
+        /// </summary>
         private static void DownloadReports()
         {
             const int rankLo = 1;
@@ -470,6 +580,21 @@
             }
         }
 
+        /// <summary>
+        /// Outputs usage information.
+        /// </summary>
+        private static void Usage()
+        {
+            Console.WriteLine("Automated GIMPS assignment and results management.");
+            Console.WriteLine("Normal operation:   gimp");
+            Console.WriteLine("Usage hints:        gimp -?");
+            Console.WriteLine("Set GIMPS password: gimp -p password");
+        }
+
+        /// <summary>
+        /// Encrypts password and saves it in settings file.
+        /// </summary>
+        /// <param name="password"></param>
         private static void SetPassword(string password)
         {
             var appSettings = new IniFile(Constants.IniFileName);
@@ -478,11 +603,17 @@
             appSettings.Set(Constants.KeyPassword, enc);
 
             appSettings.Refresh();
+
+            Console.WriteLine("Password saved");
         }
 
+        /// <summary>
+        /// Retrieves string used as crypto salt.
+        /// </summary>
+        /// <returns>Crypto salt.</returns>
         public static byte[] CryptoSalt()
         {
-            const string keyName = "USER_GUID";
+            const string keyName = "UserGuid";
             var rkey = Registry.CurrentUser;
 
             var myGuid = (string)rkey.GetValue(keyName, string.Empty);
@@ -493,7 +624,7 @@
                 rkey.SetValue(keyName, myGuid);
             }
 
-            byte[] bytes = new byte[myGuid.Length * sizeof(char)];
+            var bytes = new byte[myGuid.Length * sizeof(char)];
             Buffer.BlockCopy(myGuid.ToCharArray(), 0, bytes, 0, bytes.Length);
 
             return bytes;

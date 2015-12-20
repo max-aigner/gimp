@@ -33,5 +33,8 @@
 
         public const string TestKey = "Test";
         public const string DblChkKey = "DoubleCheck";
+
+        public const string ResultTypeLl = "C - Unverified";
+        public const string ResultTypeDc = "C - Verified";
     }
 }
