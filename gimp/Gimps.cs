@@ -382,7 +382,7 @@
             catch (IOException e)
             {
                 Console.WriteLine(e.Message);
-                return null;
+                return string.Empty;
             }
         }
 
@@ -584,9 +584,11 @@
             var beg = response.IndexOf(BeginBlockMarker) + BeginBlockMarker.Length;
             var end = response.IndexOf(EndBlockMarker);
 
-            var assignments = response.Substring(beg, end - beg).Trim();
+            var lines = response.Substring(beg, end - beg)
+                .Trim()
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
-            return assignments.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+            return lines.Where(x => x.StartsWith(Constants.TestKey) || x.StartsWith(Constants.DblChkKey));
         }
 
         /// <summary>
@@ -635,7 +637,7 @@
         /// </summary>
         /// <param name="response">HTML response to report request.</param>
         /// <returns>Total assignment credit received for completing the uploaded assignments.</returns>
-        public static IEnumerable<ReportLine> ParseReport(string response)
+        private static IEnumerable<ReportLine> ParseReport(string response)
         {
             const string StartMarker = "|----- ----- ----- -----";
             const string Break = "<br>";
@@ -644,12 +646,18 @@
             const string FiveFieldMarker = "Attempts Successes";
 
             var lines = new List<ReportLine>();
+
+            if (response == null)
+            {
+                return lines;
+            }
+
             var fiveFields = response.Contains(FiveFieldMarker);
             var beg = response.IndexOf(StartMarker);
 
             if (beg < 0)
             {
-                return null;
+                return lines;
             }
 
             var br = response.IndexOf(Break, beg + StartMarker.Length);
@@ -664,6 +672,12 @@
                 }
 
                 var bar = cur.IndexOf(BarMarker);
+
+                if (bar < 0)
+                {
+                    break;
+                }
+
                 var lineText = cur.Substring(0, bar);
 
                 var line = ParseReportLine(lineText, fiveFields);
@@ -677,7 +691,7 @@
         }
 
         /// <summary>
-        /// Parses a sinle report line.
+        /// Parses a single report line.
         /// </summary>
         /// <param name="text">Report line string.</param>
         /// <param name="fiveFields">Indicates whether this is a five field report line.</param>

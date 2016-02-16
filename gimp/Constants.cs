@@ -16,6 +16,8 @@
         public const string KeyUsername = "Username";
         public const string KeyPassword = "Password";
         public const string KeyMinAssignmentCount = "MinAssignmentCount";
+        public const string KeyMinExponent = "MinExponent";
+        public const string KeyMaxExponent = "MaxExponent";
         public const string KeyUploadOffset = "UploadOffset";
         public const string KeyReportOffset = "ReportOffset";
 
