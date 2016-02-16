@@ -3,7 +3,6 @@
     using Microsoft.Win32;
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
     using System.IO;
     using System.Linq;
     using System.Threading;
@@ -14,6 +13,7 @@
         private static readonly List<Worker> workers = new List<Worker>();
         private static readonly TimeSpan AssignmentCheckInterval = new TimeSpan(0, 10, 11);
         private static readonly TimeSpan ResultCheckInterval = new TimeSpan(0, 1, 3);
+        private static readonly TimeSpan UploadCheckInterval = new TimeSpan(0, 2, 7);
         private static readonly TimeSpan StatisticsInterval = new TimeSpan(0, 20, 11);
 
         /// <summary>
@@ -25,13 +25,23 @@
         private static string username;
         private static string password;
         private static int MinAssignmentCount = 2;
+        private static int? MinExponent = null;
+        private static int? MaxExponent = null;
+        private static Gimps.AssignmentType AssignmentType = Gimps.AssignmentType.WorldRecordTests;
         private static TimeSpan UploadOffset = new TimeSpan(0, 58, 0);
-        private static TimeSpan ReportOffset = new TimeSpan(0, 12, 0);
+
+        /// <summary>
+        /// Report download is disabled by default (unless overridden in config) by
+        /// setting it to an offset gretaer than 1 hour.
+        /// </summary>
+        private static TimeSpan ReportOffset = new TimeSpan(1, 12, 0);
 
         /// <summary>
         /// Last calculated credit amount.
         /// </summary>
         private static int LastCreditHashCode = 0;
+
+        private static Output monitor = new Output();
 
         public static void Main(string[] args)
         {
@@ -60,14 +70,17 @@
                 return;
             }
 
-            StdOut("Start");
-            Console.WriteLine();
+            monitor.PrintStatus(
+                Output.Facility.Start,
+                string.Empty);
 
             ReadSettings();
 
             foreach (var folder in folders)
             {
-                StdOut(string.Format("Init: Found worker directory {0}", folder));
+                monitor.PrintStatus(
+                    Output.Facility.Init,
+                    string.Format("Found worker directory {0}", folder));
 
                 var worker = new Worker
                 {
@@ -85,8 +98,8 @@
 
             var lastAssignmentCheck = Constants.Never;
             var lastResultCheck = Constants.Never;
+            var lastUploadCheck = Constants.Never;
             var lastStatisticsCheck = Constants.Never;
-            var resultsUploaded = false;
             var reportsDownloaded = false;
 
             while (true)
@@ -101,8 +114,22 @@
 
                 if (now - lastResultCheck >= ResultCheckInterval)
                 {
-                    CheckResults();
+                    if (CheckResults())
+                    {
+                        lastUploadCheck = Constants.Never;
+                    }
+
                     lastResultCheck = now;
+                }
+
+                if (now - lastUploadCheck >= UploadCheckInterval)
+                {
+                    if (UploadCheck())
+                    {
+                        lastStatisticsCheck = Constants.Never;
+                    }
+
+                    lastUploadCheck = now;
                 }
 
                 if (now - lastStatisticsCheck >= StatisticsInterval)
@@ -112,23 +139,6 @@
                 }
 
                 var hourlyOffset = new TimeSpan(0, now.Minute, now.Second);
-                var dailyOffset = new TimeSpan(now.Hour, now.Minute, now.Second);
-
-                if (hourlyOffset >= UploadOffset)
-                {
-                    if (!resultsUploaded)
-                    {
-                        UploadCheck();
-                        resultsUploaded = true;
-
-                        CalculateStatistics();
-                        lastStatisticsCheck = now;
-                    }
-                }
-                else
-                {
-                    resultsUploaded = false;
-                }
 
                 if (hourlyOffset >= ReportOffset)
                 {
@@ -193,28 +203,30 @@
 
                 if (assignmentLines.Count < MinAssignmentCount)
                 {
-                    List<string> assignments = new List<string>(Gimps.GetAssignments(
+                    var assignments = new List<string>(Gimps.GetAssignments(
                         Guid.NewGuid().ToString(),
                         username,
                         password,
                         MinAssignmentCount - assignmentLines.Count,
                         1,
-                        Gimps.AssignmentType.WorldRecordTests,
-                        null,
-                        null));
+                        AssignmentType,
+                        MinExponent,
+                        MaxExponent));
 
                     if (assignments != null)
                     {
                         File.AppendAllLines(worker.WorkTodoFileName, assignments);
 
-                        StdOut(string.Format("Assign: Added {0} line(s) to {1}:", assignments.Count, worker.WorkTodoFileName));
+                        monitor.PrintStatus(
+                            Output.Facility.Assign,
+                            string.Format("Added {0} line(s) to {1}:", assignments.Count, worker.WorkTodoFileName));
 
                         foreach (var line in assignments)
                         {
-                            StdOut(string.Format("Assign: {0}", line));
+                            monitor.PrintStatus(
+                                Output.Facility.Assign,
+                                line);
                         }
-
-                        Console.WriteLine();
 
                         timestamp = File.GetLastWriteTimeUtc(worker.WorkTodoFileName);
                     }
@@ -227,8 +239,10 @@
         /// <summary>
         /// Checks for results and writes results lines to staging file.
         /// </summary>
-        private static void CheckResults()
+        /// <returns>Value indicating whether any results were found.</returns>
+        private static bool CheckResults()
         {
+            var resultsFound = false;
             var stagingFileName = Constants.StagingDir + Guid.NewGuid().ToString() + Constants.TxtExtension;
 
             foreach (var worker in workers)
@@ -263,14 +277,16 @@
 
                 if (resultLines.Any())
                 {
-                    StdOut(string.Format("Result: Found {0} line(s) in folder {1}:", resultLines.Count, worker.Directory));
+                    monitor.PrintStatus(
+                        Output.Facility.Result,
+                        string.Format("Found {0} line(s) in folder {1}:", resultLines.Count, worker.Directory));
 
                     foreach (var line in resultLines)
                     {
-                        StdOut(string.Format("Result: {0}", line));
+                        monitor.PrintStatus(
+                            Output.Facility.Result,
+                            line);
                     }
-
-                    Console.WriteLine();
 
                     File.AppendAllLines(
                             stagingFileName,
@@ -278,18 +294,24 @@
 
                     File.WriteAllText(worker.ResultsFileName, string.Empty);
                     timestamp = File.GetLastWriteTimeUtc(worker.ResultsFileName);
+
+                    resultsFound = true;
                 }
 
                 worker.ResultsTimestamp = timestamp;
             }
+
+            return resultsFound;
         }
 
         /// <summary>
         /// Checks whether there are any files in staging that need to be uploaded
         /// to GIMPS. Uploads files and moves them to the backup folder.
         /// </summary>
-        private static void UploadCheck()
+        /// <returns>Value indicating whether any results have been uploaded.</returns>
+        private static bool UploadCheck()
         {
+            var resultsUploaded = false;
             var stagedFiles = new List<string>(Directory.EnumerateFiles(Constants.StagingDir, "*.txt"));
 
             foreach (var file in stagedFiles)
@@ -320,9 +342,13 @@
                         password,
                         resultLines))
                 {
-                    StdOut(string.Format("Upload: Error uploading {0}", file));
+                    monitor.PrintStatus(
+                        Output.Facility.Upload,
+                        string.Format("Error uploading {0}", file));
                     continue;
                 }
+
+                resultsUploaded = true;
 
                 var fileName = Path.GetFileName(file);
 
@@ -330,15 +356,19 @@
                     Constants.StagingDir + fileName,
                     Constants.BackupDir + fileName);
 
-                StdOut(string.Format("Upload: Uploaded {0} line(s) from {1}:", resultLines.Count, file));
+                monitor.PrintStatus(
+                    Output.Facility.Upload,
+                    string.Format("Uploaded {0} line(s) from {1}:", resultLines.Count, file));
 
                 foreach (var line in resultLines)
                 {
-                    StdOut(string.Format("Upload: {0}", line));
+                    monitor.PrintStatus(
+                        Output.Facility.Upload,
+                        line);
                 }
-
-                Console.WriteLine();
             }
+
+            return resultsUploaded;
         }
 
         /// <summary>
@@ -406,6 +436,11 @@
                 }
             }
 
+            if (creditTotal == 0)
+            {
+                return;
+            }
+
             var creditHashCode = credit1.GetHashCode()
                 ^ credit7.GetHashCode()
                 ^ credit30.GetHashCode()
@@ -418,8 +453,9 @@
                 return;
             }
 
-            StdOut(string.Format("Stats:  1: {0:F3}, 7: {1:F3}, 30: {2:F3}, 90: {3:F3}, 365: {4:F3}, total: {5:F3}", credit1, credit7, credit30, credit90, credit365, creditTotal));
-            Console.WriteLine();
+            monitor.PrintStatus(
+                Output.Facility.Stats,
+                string.Format("1: {0:F3}, 7: {1:F3}, 30: {2:F3}, 90: {3:F3}, 365: {4:F3}, total: {5:F3}", credit1, credit7, credit30, credit90, credit365, creditTotal));
 
             LastCreditHashCode = creditHashCode;
         }
@@ -486,8 +522,9 @@
                 return;
             }
 
-            StdOut(string.Format("Stats:  1: {0}, 7: {1}, 30: {2}, 90: {3}, 365: {4}, total: {5}", credit1, credit7, credit30, credit90, credit365, creditTotal));
-            Console.WriteLine();
+            monitor.PrintStatus(
+                Output.Facility.Stats,
+                string.Format("1: {0}, 7: {1}, 30: {2}, 90: {3}, 365: {4}, total: {5}", credit1, credit7, credit30, credit90, credit365, creditTotal));
 
             LastCreditHashCode = creditHashCode;
         }
@@ -521,15 +558,6 @@
         }
 
         /// <summary>
-        /// Writes a message to stdout.
-        /// </summary>
-        /// <param name="display"></param>
-        private static void StdOut(string display)
-        {
-            Console.WriteLine("{0} {1}", DateTime.Now.ToString("MMM dd HH:mm:ss"), display);
-        }
-
-        /// <summary>
         /// Reads settings from app config file.
         /// </summary>
         private static void ReadSettings()
@@ -560,6 +588,20 @@
                         if (int.TryParse(value, out number))
                         {
                             MinAssignmentCount = number;
+                        }
+                        break;
+
+                    case Constants.KeyMinExponent:
+                        if (int.TryParse(value, out number))
+                        {
+                            MinExponent = number;
+                        }
+                        break;
+
+                    case Constants.KeyMaxExponent:
+                        if (int.TryParse(value, out number))
+                        {
+                            MaxExponent = number;
                         }
                         break;
 
